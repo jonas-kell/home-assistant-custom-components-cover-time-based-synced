@@ -4,6 +4,7 @@ import logging
 import voluptuous as vol
 
 from datetime import timedelta
+from asyncio import sleep
 
 from homeassistant.core import callback
 from homeassistant.helpers import entity_platform
@@ -36,8 +37,10 @@ CONF_ALIASES = 'aliases'
 CONF_TRAVELLING_TIME_DOWN = 'travelling_time_down'
 CONF_TRAVELLING_TIME_UP = 'travelling_time_up'
 CONF_SEND_STOP_AT_ENDS = 'send_stop_at_ends'
+CONF_DELAY_BEFORE_STOP_AT_ENDS = 'delay_before_stop_at_ends'
 DEFAULT_TRAVEL_TIME = 25
 DEFAULT_SEND_STOP_AT_ENDS = False
+DEFAULT_DELAY_BEFORE_STOP_AT_ENDS = 0.0
 
 CONF_OPEN_SWITCH_ENTITY_ID = 'open_switch_entity_id'
 CONF_CLOSE_SWITCH_ENTITY_ID = 'close_switch_entity_id'
@@ -63,6 +66,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
                     vol.Optional(CONF_TRAVELLING_TIME_DOWN, default=DEFAULT_TRAVEL_TIME): cv.positive_int,
                     vol.Optional(CONF_TRAVELLING_TIME_UP, default=DEFAULT_TRAVEL_TIME): cv.positive_int,
                     vol.Optional(CONF_SEND_STOP_AT_ENDS, default=DEFAULT_SEND_STOP_AT_ENDS): cv.boolean,
+                    vol.Optional(CONF_DELAY_BEFORE_STOP_AT_ENDS, default=DEFAULT_DELAY_BEFORE_STOP_AT_ENDS): cv.positive_float,
                 }
             }
         ),
@@ -99,7 +103,8 @@ def devices_from_config(domain_config):
         open_switch_entity_id = config.pop(CONF_OPEN_SWITCH_ENTITY_ID)
         close_switch_entity_id = config.pop(CONF_CLOSE_SWITCH_ENTITY_ID)
         send_stop_at_ends = config.pop(CONF_SEND_STOP_AT_ENDS)
-        device = CoverTimeBased(device_id, name, travel_time_down, travel_time_up, open_switch_entity_id, close_switch_entity_id, send_stop_at_ends)
+        delay_before_stop_at_ends = config.pop(CONF_DELAY_BEFORE_STOP_AT_ENDS)
+        device = CoverTimeBased(device_id, name, travel_time_down, travel_time_up, open_switch_entity_id, close_switch_entity_id, send_stop_at_ends, delay_before_stop_at_ends)
         devices.append(device)
     return devices
 
@@ -121,13 +126,14 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
 
 class CoverTimeBased(CoverEntity, RestoreEntity):
-    def __init__(self, device_id, name, travel_time_down, travel_time_up, open_switch_entity_id, close_switch_entity_id, send_stop_at_ends):
+    def __init__(self, device_id, name, travel_time_down, travel_time_up, open_switch_entity_id, close_switch_entity_id, send_stop_at_ends, delay_before_stop_at_ends):
         """Initialize the cover."""
         self._travel_time_down = travel_time_down
         self._travel_time_up = travel_time_up
         self._open_switch_entity_id = open_switch_entity_id
         self._close_switch_entity_id = close_switch_entity_id
         self._send_stop_at_ends = send_stop_at_ends
+        self._delay_before_stop_at_ends = delay_before_stop_at_ends
         self._assume_uncertain_position = True 
         self._target_position = 0
         self._processing_known_position = False
@@ -402,6 +408,8 @@ class CoverTimeBased(CoverEntity, RestoreEntity):
             else:
                 if self._send_stop_at_ends:
                     _LOGGER.debug(self._name + ': ' + 'auto_stop_if_necessary :: send_stop_at_ends :: calling stop command')
+                    if (self._delay_before_stop_at_ends > 0):
+                        await sleep(delay=self._delay_before_stop_at_ends)
                     await self._async_handle_command(SERVICE_STOP_COVER)
 
     async def _async_handle_command(self, command, *args):
